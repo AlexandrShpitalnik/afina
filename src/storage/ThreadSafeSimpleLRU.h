@@ -23,35 +23,46 @@ public:
     // see SimpleLRU.h
     bool Put(const std::string &key, const std::string &value) override {
         // TODO: sinchronization
+        std::lock_guard<std::mutex> lock(storage_lock);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
         return SimpleLRU::Put(key, value);
     }
 
     // see SimpleLRU.h
     bool PutIfAbsent(const std::string &key, const std::string &value) override {
         // TODO: sinchronization
+        std::lock_guard<std::mutex> lock(storage_lock);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
         return SimpleLRU::PutIfAbsent(key, value);
     }
 
     // see SimpleLRU.h
     bool Set(const std::string &key, const std::string &value) override {
         // TODO: sinchronization
+        std::lock_guard<std::mutex> lock(storage_lock);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
         return SimpleLRU::Set(key, value);
     }
 
     // see SimpleLRU.h
     bool Delete(const std::string &key) override {
         // TODO: sinchronization
+        std::lock_guard<std::mutex> lock(storage_lock);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
         return SimpleLRU::Delete(key);
     }
 
     // see SimpleLRU.h
     bool Get(const std::string &key, std::string &value) const override {
         // TODO: sinchronization
+        std::lock_guard<std::mutex> lock(storage_lock);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
         return SimpleLRU::Get(key, value);
     }
 
 private:
     // TODO: sinchronization primitives
+    mutable std::mutex storage_lock;
 };
 
 } // namespace Backend
