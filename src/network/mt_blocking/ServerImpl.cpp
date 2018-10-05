@@ -86,18 +86,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
 // See Server.h
 void ServerImpl::Stop() {
     running.store(false);
-    while(num_workers != 0){
-        std::unique_lock<std::mutex> lock(_condition_mutex);
-        while (!_is_completed)   // loop to avoid spurious wakeups
-            _cond_var.wait(lock);
-        while (!_completed.empty()){
-            auto compl_it = _completed.top();
-            num_workers--;
-            (*compl_it)->join();
-            delete *compl_it; // memory freed
-            _completed.pop();
-        }
-    }
     shutdown(_server_socket, SHUT_RDWR);
 }
 
@@ -203,14 +191,14 @@ void ServerImpl::OnRun() {
         auto it = _workers.begin();
         while(it!= _workers.end()){
             if(*it == nullptr) {
-                *it = new std::thread(&ServerImpl::Worker, this, it, client_socket, pStorage.get());
+                *it = new std::thread(&ServerImpl::Worker, this, it, client_socket);
                 break;
             }
             it++;
         }
     }
 
-    void ServerImpl::Worker(std::vector<std::thread*>::iterator self_it, int client_socket, Afina::Storage* pStorage) {/* add client_socket, *pStorage delete(?) _logger*/
+    void ServerImpl::Worker(std::vector<std::thread*>::iterator self_it, int client_socket) {
         std::size_t arg_remains;
         Protocol::Parser parser;
         std::string argument_for_command;

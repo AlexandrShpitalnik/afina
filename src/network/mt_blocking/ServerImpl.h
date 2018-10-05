@@ -42,7 +42,7 @@ protected:
      * Method is running in the connection acceptor thread
      */
     void OnRun();
-    void Worker(std::vector<std::thread*>::iterator self_it, int client_socket, Afina::Storage* pStorage);
+    void Worker(std::vector<std::thread*>::iterator self_it, int client_socket);
 
 private:
     // Logger instance
