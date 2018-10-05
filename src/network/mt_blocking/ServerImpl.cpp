@@ -94,6 +94,7 @@ void ServerImpl::Stop() {
             auto compl_it = _completed.top();
             num_workers--;
             (*compl_it)->join();
+            delete *compl_it; // memory freed
             _completed.pop();
         }
     }
@@ -103,20 +104,29 @@ void ServerImpl::Stop() {
 // See Server.h
 void ServerImpl::Join() {
     running.store(false);
+    _stack_mutex.lock();
+    FreeStack();
+    _stack_mutex.unlock();
     while(num_workers != 0){
         std::unique_lock<std::mutex> lock(_condition_mutex);
         while (!_is_completed)
             _cond_var.wait(lock);
-        while(!_completed.empty()){
-            auto compl_it = _completed.top();
-            num_workers--;
-            (*compl_it)->join();
-            _completed.pop();
-        }
+        FreeStack();
     }
     assert(_thread.joinable());
     _thread.join();
     close(_server_socket);
+    }
+
+
+void ServerImpl::FreeStack() {
+    while (!_completed.empty()) {
+        auto compl_it = _completed.top();
+        num_workers--;
+        (*compl_it)->join();
+        delete *compl_it; // memory freed
+        _completed.pop();
+    }
 }
 
 // See Server.h
@@ -171,6 +181,7 @@ void ServerImpl::OnRun() {
                  _completed.pop();
                  _stack_mutex.unlock();
                  (*compl_it)->join();
+                 delete *compl_it; // memory freed
                  (*compl_it) = nullptr;
                  StartWorker(client_socket);
              } else{

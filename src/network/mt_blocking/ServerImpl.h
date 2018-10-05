@@ -66,6 +66,7 @@ private:
     std::condition_variable _cond_var;
 
     void StartWorker(int client_socket);
+    void FreeStack();
 };
 
 } // namespace MTblocking
