@@ -92,13 +92,12 @@ void ServerImpl::Stop() {
 // See Server.h
 void ServerImpl::Join() {
     running.store(false);
-    _stack_mutex.lock();
+    std::unique_lock<std::mutex> lock(_condition_mutex);
     FreeStack();
-    _stack_mutex.unlock();
     while(num_workers != 0){
-        std::unique_lock<std::mutex> lock(_condition_mutex);
         while (!_is_completed)
             _cond_var.wait(lock);
+        _is_completed = false;
         FreeStack();
     }
     assert(_thread.joinable());
