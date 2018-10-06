@@ -162,7 +162,7 @@ void ServerImpl::OnRun() {
 
 
         if(num_workers+1 > _workers.capacity()){
-            _stack_mutex.lock();
+            _stack_mutex.lock(); 
              if (! _completed.empty()){
                  auto compl_it = _completed.top();
                  _completed.pop();
