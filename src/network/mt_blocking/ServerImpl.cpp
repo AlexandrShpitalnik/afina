@@ -75,10 +75,7 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
 
         //my_code - creating vector of workers;
 
-    _workers.reserve(n_workers);
-    for(int i=0; i<n_workers ;i++)
-        _workers.push_back(nullptr);
-
+    _max_workers = n_workers;
     running.store(true);
     _thread = std::thread(&ServerImpl::OnRun, this);
 }
@@ -92,13 +89,9 @@ void ServerImpl::Stop() {
 // See Server.h
 void ServerImpl::Join() {
     running.store(false);
-    std::unique_lock<std::mutex> lock(_condition_mutex);
-    FreeStack();
-    while(num_workers != 0){
-        while (!_is_completed)
-            _cond_var.wait(lock);
-        _is_completed = false;
-        FreeStack();
+    std::unique_lock<std::mutex> lock(_list_mutex);
+    while (!_workers.empty()){
+        _cond_var.wait(lock);
     }
     assert(_thread.joinable());
     _thread.join();
@@ -106,15 +99,6 @@ void ServerImpl::Join() {
     }
 
 
-void ServerImpl::FreeStack() {
-    while (!_completed.empty()) {
-        auto compl_it = _completed.top();
-        num_workers--;
-        (*compl_it)->join();
-        delete *compl_it; // memory freed
-        _completed.pop();
-    }
-}
 
 // See Server.h
 void ServerImpl::OnRun() {
@@ -159,26 +143,18 @@ void ServerImpl::OnRun() {
             setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
         }
 
-
-
-        if(num_workers+1 > _workers.capacity()){
-            _stack_mutex.lock(); 
-             if (! _completed.empty()){
-                 auto compl_it = _completed.top();
-                 _completed.pop();
-                 _stack_mutex.unlock();
-                 (*compl_it)->join();
-                 delete *compl_it; // memory freed
-                 (*compl_it) = nullptr;
-                 StartWorker(client_socket);
-             } else{
-                 _stack_mutex.unlock();
-                 close(client_socket);
-             }
-        } else {
-            num_workers++;
-            StartWorker(client_socket);
+        _list_mutex.lock();
+        int dbg = _workers.size();///
+        if(_max_workers > _workers.size()){
+            _workers.emplace_front(std::thread());
+            _workers.front() = std::thread(&ServerImpl::Worker, this, _workers.begin(), client_socket);
+            auto dbg = _workers.end();
+            _list_mutex.unlock();
+        }else{
+            _list_mutex.unlock();
+            close(client_socket);
         }
+
     }
 
     // Cleanup on exit...
@@ -186,18 +162,8 @@ void ServerImpl::OnRun() {
 }
 
 
-    void ServerImpl::StartWorker(int client_socket){
-        auto it = _workers.begin();
-        while(it!= _workers.end()){
-            if(*it == nullptr) {
-                *it = new std::thread(&ServerImpl::Worker, this, it, client_socket);
-                break;
-            }
-            it++;
-        }
-    }
 
-    void ServerImpl::Worker(std::vector<std::thread*>::iterator self_it, int client_socket) {
+    void ServerImpl::Worker(std::list<std::thread>::iterator self_it, int client_socket) {
         std::size_t arg_remains;
         Protocol::Parser parser;
         std::string argument_for_command;
@@ -276,16 +242,16 @@ void ServerImpl::OnRun() {
         command_to_execute.reset();
         argument_for_command.resize(0);
         parser.Reset();
-        if (!running.load()) {
-            std::unique_lock<std::mutex> lock(_condition_mutex);
-            _is_completed = true;
-            _completed.push(self_it);
+
+        std::unique_lock<std::mutex> lock(_list_mutex);
+        self_it->detach();
+        _workers.erase(self_it);
+        if(_workers.empty() && !running.load()) {
             _cond_var.notify_one();
-        } else {
-            _stack_mutex.lock();
-            _completed.push(self_it);
-            _stack_mutex.unlock();
         }
+
+
+
         //Cleanup on exit...
         _logger->warn("Network stopped");
 

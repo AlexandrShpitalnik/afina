@@ -4,7 +4,7 @@
 #include <atomic>
 #include <thread>
 #include <algorithm>
-
+#include <list>
 #include <afina/network/Server.h>
 #include <netdb.h>
 #include <stack>
@@ -42,7 +42,7 @@ protected:
      * Method is running in the connection acceptor thread
      */
     void OnRun();
-    void Worker(std::vector<std::thread*>::iterator self_it, int client_socket);
+    void Worker(std::list<std::thread>::iterator self_it, int client_socket);
 
 private:
     // Logger instance
@@ -52,21 +52,16 @@ private:
     // flag must be atomic in order to safely publisj changes cross thread
     // bounds
     std::atomic<bool> running;
-    std::vector<std::thread*> _workers;
-    std::stack<std::vector<std::thread*>::iterator> _completed;
-    std::mutex _stack_mutex;
-    std::mutex _condition_mutex;
+    std::list<std::thread> _workers;
+    std::mutex _list_mutex;
 
     // Server socket to accept connections on
     int _server_socket;
-    int num_workers = 0;
-    bool _is_completed = false;
+    int _max_workers;
     // Thread to run network on
     std::thread _thread;
     std::condition_variable _cond_var;
 
-    void StartWorker(int client_socket);
-    void FreeStack();
 };
 
 } // namespace MTblocking
