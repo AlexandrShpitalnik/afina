@@ -144,11 +144,9 @@ void ServerImpl::OnRun() {
         }
 
         _list_mutex.lock();
-        int dbg = _workers.size();///
         if(_max_workers > _workers.size()){
             _workers.emplace_front(std::thread());
             _workers.front() = std::thread(&ServerImpl::Worker, this, _workers.begin(), client_socket);
-            auto dbg = _workers.end();
             _list_mutex.unlock();
         }else{
             _list_mutex.unlock();
