@@ -157,7 +157,7 @@ void ServerImpl::OnRun() {
     bool run = true;
     std::array<struct epoll_event, 64> mod_list;
     while (run) {
-        int nmod = epoll_wait(acceptor_epoll, &mod_list[0], mod_list.size(), -1);
+        int nmod = epoll_wait(acceptor_epoll, &mod_list[0], mod_list.size(), -1);//new connection or worker event
         _logger->debug("Acceptor wokeup: {} events", nmod);
 
         for (int i = 0; i < nmod; i++) {
@@ -193,7 +193,7 @@ void ServerImpl::OnRun() {
                 }
 
                 // Register the new FD to be monitored by epoll.
-                Connection *pc = new Connection(infd);
+                Connection *pc = new Connection(infd, pStorage);
                 if (pc == nullptr) {
                     throw std::runtime_error("Failed to allocate connection");
                 }
@@ -202,7 +202,7 @@ void ServerImpl::OnRun() {
                 pc->Start();
                 if (pc->isAlive()) {
                     pc->_event.events |= EPOLLONESHOT;
-                    if (epoll_ctl(_data_epoll_fd, EPOLL_CTL_MOD, pc->_socket, &pc->_event)) {
+                    if (epoll_ctl(_data_epoll_fd, EPOLL_CTL_ADD, pc->_socket, &pc->_event)) {
                         pc->OnError();
                         delete pc;
                     }

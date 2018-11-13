@@ -23,6 +23,7 @@ namespace NonBlocking {
 // See Worker.h
 Worker::Worker(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Afina::Logging::Service> pl)
     : _pStorage(ps), _pLogging(pl), isRunning(false), _epoll_fd(-1) {
+
     // TODO: implementation here
 }
 
@@ -76,8 +77,9 @@ void Worker::OnRun() {
     // for events to avoid thundering herd type behavior.
     int timeout = -1;
     std::array<struct epoll_event, 64> mod_list;
+
     while (isRunning) {
-        int nmod = epoll_wait(_epoll_fd, &mod_list[0], mod_list.size(), timeout);
+        int nmod = epoll_wait(_epoll_fd, &mod_list[0], mod_list.size(), timeout); //new data aviliable
         _logger->debug("Worker wokeup: {} events", nmod);
 
         for (int i = 0; i < nmod; i++) {
