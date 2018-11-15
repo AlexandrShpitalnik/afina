@@ -3,12 +3,9 @@ set(SOURCE_FILES
     st_blocking/ServerImpl.cpp
     mt_blocking/ServerImpl.cpp
     nonblocking/ServerImpl.cpp
-    st_coroutine/ServerImpl.cpp
     nonblocking/Connection.cpp
     nonblocking/Worker.cpp
     nonblocking/Utils.cpp
-    st_coroutine/Engine.cpp
-    st_coroutine/Utils.cpp
     
 )
 
