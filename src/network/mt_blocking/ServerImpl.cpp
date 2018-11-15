@@ -73,8 +73,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
     }
 
 
-        //my_code - creating vector of workers;
-
     _max_workers = n_workers;
     running.store(true);
     _thread = std::thread(&ServerImpl::OnRun, this);
