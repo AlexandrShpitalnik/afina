@@ -33,17 +33,16 @@ void Engine::Restore(context &ctx) {
 }
 
 void Engine::yield() {
-    if (setjmp(this->cur_routine->Environment) == 0) {
+    if(this->cur_routine){
+        if (setjmp(this->cur_routine->Environment) > 0) {
+            return;
+        }
         Store(*this->cur_routine);
     }
-    // todo - реализовать перенос преоритета в alive на последнее место (?)
-    // todo - если вызван из idle_ctx - не сохранять контекст/иначе сохранять имитируя выход из функции
     if (alive != nullptr) {
-        //if (setjmp(this->cur_routine->Environment) == 0) {
-        //Store(*this->cur_routine);
         Restore(*alive);
-        }
     }
+}
 
 
 void Engine::sched(void *routine_) {

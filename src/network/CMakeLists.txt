@@ -6,6 +6,7 @@ set(SOURCE_FILES
     nonblocking/Connection.cpp
     nonblocking/Worker.cpp
     nonblocking/Utils.cpp
+    st_corutine/SrverImpl.cpp
 )
 
 add_library(Network ${SOURCE_FILES})
