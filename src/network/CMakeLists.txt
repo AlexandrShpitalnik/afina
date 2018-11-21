@@ -2,14 +2,20 @@
 set(SOURCE_FILES
     st_blocking/ServerImpl.cpp
     mt_blocking/ServerImpl.cpp
-    nonblocking/ServerImpl.cpp
     st_coroutine/ServerImpl.cpp
-    nonblocking/Connection.cpp
-    nonblocking/Worker.cpp
-    nonblocking/Utils.cpp
+
+    st_nonblocking/ServerImpl.cpp
+    st_nonblocking/Connection.cpp
+    st_nonblocking/Utils.cpp
+
+    mt_nonblocking/ServerImpl.cpp
+    mt_nonblocking/Connection.cpp
+    mt_nonblocking/Worker.cpp
+    mt_nonblocking/Utils.cpp
+    
     st_coroutine/Engine.cpp
     st_coroutine/Utils.cpp
-    
+        
 )
 
 add_library(Network ${SOURCE_FILES})

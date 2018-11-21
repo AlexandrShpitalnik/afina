@@ -58,12 +58,49 @@ void Engine::Block(context &ctx){
 
 }
 
-void Engine::Unblock() {
-    std::array<struct epoll_event, 64> mod_list;
-    int nmod = epoll_wait(epoll, &mod_list[0], mod_list.size(), -1);
-    for (int i = 0; i < nmod; i++) {
-        struct epoll_event &current_event = mod_list[i];
-        context *ctx = static_cast<context*>(current_event.data.ptr);
+void Engine::Unblock(context &ctx) {
+    if (ctx.prev != nullptr) {
+        ctx.prev->next = ctx.next;
+    }
+
+    if (ctx.next != nullptr) {
+        ctx.next->prev = ctx.prev;
+    }
+
+    if (blocked == cur_routine) {
+        blocked = blocked->next;
+    }
+}
+
+void* Engine::getCoroutine() {
+    return cur_routine;
+}
+
+void*& Engine::getCoroutineInfo(void* coroutine) {
+    if (coroutine){
+        auto ctx = static_cast<context*>(coroutine);
+        return ctx->info;
+    } else{
+        return cur_routine->info;
+    }
+
+}
+
+void Engine::setCoroutineInfo(void *&coroutine, void* new_info) {
+    if (coroutine){
+        auto ctx = static_cast<context*>(coroutine);
+        ctx->info = new_info;
+        coroutine = ctx;
+    } else{
+        cur_routine->info = new_info;
+    }
+}
+
+void Engine::deleteCoroutine(void *coroutine) {
+    if (coroutine){
+        auto ctx = static_cast<context*>(coroutine);
+        delete ctx->info;
+
         if (ctx->prev != nullptr) {
             ctx->prev->next = ctx->next;
         }
@@ -72,28 +109,28 @@ void Engine::Unblock() {
             ctx->next->prev = ctx->prev;
         }
 
-        if (blocked == cur_routine) {
-            blocked = blocked->next;
+        if (alive == ctx) {
+            alive = alive->next;
         }
-        if ((current_event.events & EPOLLIN) || (current_event.events & EPOLLOUT)) {
-            ctx->next = alive;
-            alive = ctx;
-            if (ctx->next != nullptr) {
-                ctx->next->prev = ctx;
-            }
-        } else {
-            ctx->prev = ctx->next = nullptr;
-            delete std::get<0>(ctx->Stack);
-            delete ctx->event;
-            delete ctx;
-        }
+
+
+        delete std::get<0>(ctx->Stack);
+        delete ctx;
+
     }
 }
 
 
-void Engine::Stop(){
+void Engine::stop(){
     is_running = false;
 }
+
+
+bool Engine::isRunnging() {
+    return is_running;
+}
+
+
 
 
 void Engine::yield() {
@@ -101,11 +138,14 @@ void Engine::yield() {
         if (setjmp(this->cur_routine->Environment) > 0) {
             return;
         }
-        Block(*this->cur_routine);
         Store(*this->cur_routine);
     }
     if (alive != nullptr) {
-        Restore(*alive);
+        if (alive != cur_routine) {
+            Restore(*alive);
+        } else if (alive->next) {
+            Restore(*alive->next);
+        }
     }
 }
 
@@ -116,11 +156,12 @@ void Engine::sched(void *routine_) {
             if (setjmp(this->cur_routine->Environment) > 0) {
                 return;
             }
-            Block(*this->cur_routine);
             Store(*this->cur_routine);
         }
         auto arg = static_cast<context*>(routine_);
         Restore(*arg);
+    //} else {
+    //    yield();
     }
 }
 

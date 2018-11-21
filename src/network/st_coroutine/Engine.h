@@ -9,6 +9,10 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <tuple>
+#include <afina/Storage.h>
+#include <memory>
+#include <spdlog/logger.h>
+#include <afina/logging/Service.h>
 
 namespace Afina {
 namespace Network {
@@ -20,7 +24,7 @@ namespace Coroutine {
  */
 class Engine final {
 private:
-    friend class ServerImpl;
+    //friend class ServerImpl;
     /**
      * A single coroutine instance which could be scheduled for execution
      * should be allocated on heap
@@ -42,11 +46,12 @@ private:
         // To include routine in the different lists, such as "alive", "blocked", e.t.c
         struct context *prev = nullptr;
         struct context *next = nullptr;
+        void *info; //in general coroutine info (epoll event)
 
-        epoll_event *event = nullptr;
+
     } context;
 
-    int epoll;
+    //int epoll;
     bool is_running;
 
     /**
@@ -84,13 +89,9 @@ protected:
      * Restore stack of the given context and pass control to coroutinne
      */
     void Restore(context &ctx);
+
     void Block(context &ctx);
-
-    /**
-     * Wait on epoll and ublock few coroutines
-     */
-
-    void Unblock();
+    void Unblock(context &ctx);
 
     /**
      * Suspend current coroutine execution and execute given context
@@ -98,16 +99,28 @@ protected:
     // void Enter(context& ctx);
 
 public:
-    Engine() : StackBottom(0), cur_routine(nullptr), alive(nullptr), blocked(nullptr), is_running(true) {
-        epoll = epoll_create1(0);
-        if (epoll == -1) {
-            throw std::runtime_error("Failed to create epoll file descriptor: " + std::string(strerror(errno)));
-        }
+    Engine(std::shared_ptr<Afina::Storage> Storage,
+           std::shared_ptr<Afina::Logging::Service> pl) :
+            StackBottom(0), cur_routine(nullptr), alive(nullptr), blocked(nullptr), is_running(true),
+            Storage(Storage), _plogging(pl) {
+        _logger = _plogging->select("engine");
     }
 
     Engine(Engine &&) = delete;
     Engine(const Engine &) = delete;
-    void Stop();
+    void stop();
+
+    bool isRunnging();
+
+    std::shared_ptr<Afina::Storage> Storage;
+    std::shared_ptr<Afina::Logging::Service> _plogging;
+    std::shared_ptr<spdlog::logger> _logger;
+
+
+    void*& getCoroutineInfo(void* coroutine);
+    void* getCoroutine();
+    void setCoroutineInfo(void* &coroutine, void* new_info);
+    void deleteCoroutine(void* coroutine);
 
     /**
      * Gives up current routine execution and let engine to schedule other one. It is not defined when
@@ -150,10 +163,9 @@ public:
 
         if (setjmp(idle_ctx->Environment) > 0) {
             yield(); // if coroutine finished, but there are alive
-            if(is_running) {
-                Unblock();
-                yield();
-            }
+            //if(is_running) {
+            //    yield();
+            //}
         } else if (pc != nullptr) {
             Store(*idle_ctx);
             sched(pc);
@@ -230,6 +242,10 @@ public:
         return pc;
     }
 };
+
+
+
+
 
 } // namespace Coroutine
 } // namespace Network

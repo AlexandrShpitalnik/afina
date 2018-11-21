@@ -40,7 +40,11 @@ void Engine::yield() {
         Store(*this->cur_routine);
     }
     if (alive != nullptr) {
-        Restore(*alive);
+        if (alive != cur_routine) {
+            Restore(*alive);
+        } else if (alive->next) {
+            Restore(*alive->next);
+        }
     }
 }
 

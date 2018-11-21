@@ -3,6 +3,8 @@
 
 #include "Engine.h"
 #include <afina/network/Server.h>
+#include <thread>
+
 
 
 namespace spdlog {
@@ -28,15 +30,25 @@ public:
     // See Server.h
     void Join() override;
 
+    std::thread _work_thread;
+
+    void Ugly();
+
 protected:
-    void OnRun();
-    void OnNewConnection(int _socket);
+
+
+    static void OnRun(Afina::Network::Coroutine::Engine &engine, int &_server_socket, int &_event_fd);
+    static void Reload(void *&info, int epoll, int fd, bool on_read);
+    static void* Add(void *&coroutine, int epoll, int fd, bool on_read);
+
+    static void Accept(Afina::Network::Coroutine::Engine &engine, int &socket, int &epoll, void *&prev);
+    static void Worker(Afina::Network::Coroutine::Engine &engine, int &_socket, int &epoll, void *&prev);
 
 private:
+
     // logger to use
     std::shared_ptr<spdlog::logger> _logger;
 
-    void Reload(Engine::context* ctx, int fd, bool on_read);
 
     Engine engine;
 
@@ -48,6 +60,9 @@ private:
     int _server_socket;
 
     bool is_running;
+
+    // Curstom event "device" used to wakeup workers
+    int _event_fd;
 
 
 
