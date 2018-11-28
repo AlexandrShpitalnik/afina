@@ -92,12 +92,7 @@ void ServerImpl::Stop() {
         throw std::runtime_error("Failed to wakeup workers");
     }
 
-    for (auto it = _sockets.begin(); it !=_sockets.end(); it++){
-        close(*it);
-    }
-
-
-
+    close(_server_socket);
 
 }
 
@@ -169,9 +164,8 @@ void ServerImpl::OnRun() {
                 if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->_socket, &pc->_event)) {
                     _logger->error("Failed to delete connection from epoll");
                 }
-
                 close(pc->_socket);
-                _sockets.erase(pc->_socket);
+                _connects.erase(pc->_self_it);
 
                 delete pc;
             } else if (pc->_event.events != old_mask) {
@@ -182,8 +176,20 @@ void ServerImpl::OnRun() {
             }
         }
     }
+    StopConnections();
     _logger->warn("Acceptor stopped");
 }
+
+void ServerImpl::StopConnections(){
+    for (auto i =_connects.begin(); i != _connects.end(); i++) {
+        close((*i)->_socket);
+        delete (*i);
+    }
+    _connects.clear();
+}
+
+
+
 
 void ServerImpl::OnNewConnection(int epoll_descr) {
     for (;;) {
@@ -217,13 +223,15 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         }
 
         // Register connection in worker's epoll
-        _sockets.insert(infd);
-        pc->Start(_logger);
+        _connects.push_back(nullptr);
+        pc->Start(_logger, _connects.end());
+        _connects.back() = pc;
         if (pc->isAlive()) {
             if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->_socket, &pc->_event)) {
                 pc->OnError();
+                close(pc->_socket);
+                _connects.pop_back();
                 delete pc;
-                _sockets.erase(infd);
             }
         }
     }

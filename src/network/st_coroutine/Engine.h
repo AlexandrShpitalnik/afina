@@ -24,7 +24,6 @@ namespace Coroutine {
  */
 class Engine final {
 private:
-    //friend class ServerImpl;
     /**
      * A single coroutine instance which could be scheduled for execution
      * should be allocated on heap
@@ -90,8 +89,6 @@ protected:
      */
     void Restore(context &ctx);
 
-    void Block(context &ctx);
-    void Unblock(context &ctx);
 
     /**
      * Suspend current coroutine execution and execute given context
@@ -117,9 +114,9 @@ public:
     std::shared_ptr<spdlog::logger> _logger;
 
 
-    void*& getCoroutineInfo(void* coroutine);
+    void* getCoroutineInfo(void* coroutine);
     void* getCoroutine();
-    void setCoroutineInfo(void* &coroutine, void* new_info);
+    void setCoroutineInfo(void* coroutine, void* new_info);
     void deleteCoroutine(void* coroutine);
 
     /**
@@ -162,10 +159,7 @@ public:
         idle_ctx = new context();
 
         if (setjmp(idle_ctx->Environment) > 0) {
-            yield(); // if coroutine finished, but there are alive
-            //if(is_running) {
-            //    yield();
-            //}
+            yield();
         } else if (pc != nullptr) {
             Store(*idle_ctx);
             sched(pc);

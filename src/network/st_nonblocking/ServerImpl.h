@@ -39,6 +39,7 @@ public:
 protected:
     void OnRun();
     void OnNewConnection(int);
+    void StopConnections();
 
 private:
     // logger to use
@@ -52,7 +53,7 @@ private:
     // Socket to accept new connection on, shared between acceptors
     int _server_socket;
 
-    std::set<int> _sockets;
+    std::deque<Connection*> _connects;
 
     // Curstom event "device" used to wakeup workers
     int _event_fd;

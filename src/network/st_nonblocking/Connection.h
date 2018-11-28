@@ -17,12 +17,11 @@ class Connection {
 public:
     Connection(int s, std::shared_ptr<Afina::Storage> ps) : _socket(s), _pStorage(ps), offs(0) {
         std::memset(&_event, 0, sizeof(struct epoll_event));
-       //_event.data.ptr = this;
     }
 
     inline bool isAlive() const { return _is_running; }
 
-    void Start(std::shared_ptr<spdlog::logger> logger);
+    void Start(std::shared_ptr<spdlog::logger> logger, std::deque<Connection*>::iterator self_it);
 
 protected:
     void OnError();
@@ -47,7 +46,7 @@ private:
     std::string argument_for_command;
     std::deque<std::string> global_result;
     size_t offs;
-    //std::string global_result;
+    std::deque<Connection*>::iterator _self_it ;
     std::shared_ptr<Afina::Storage> _pStorage;
 
 };

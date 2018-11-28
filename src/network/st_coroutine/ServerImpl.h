@@ -32,14 +32,17 @@ public:
 
     std::thread _work_thread;
 
-    void Ugly();
-
 protected:
+    struct epoll_info{
+        struct epoll_event event; // with epoll_info ptr
+        void* coroutine;
+        int fd;
+    };
 
 
     static void OnRun(Afina::Network::Coroutine::Engine &engine, int &_server_socket, int &_event_fd);
-    static void Reload(void *&info, int epoll, int fd, bool on_read);
-    static void* Add(void *&coroutine, int epoll, int fd, bool on_read);
+    static void Reload(void *info, int epoll, bool on_read);
+    static void* Add(void *coroutine, int epoll, int fd, bool on_read);
 
     static void Accept(Afina::Network::Coroutine::Engine &engine, int &socket, int &epoll, void *&prev);
     static void Worker(Afina::Network::Coroutine::Engine &engine, int &_socket, int &epoll, void *&prev);

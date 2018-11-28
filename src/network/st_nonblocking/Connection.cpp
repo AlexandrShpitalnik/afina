@@ -16,11 +16,11 @@ namespace Network {
 namespace STnonblock {
 
 // See Connection.h
-void Connection::Start(std::shared_ptr<spdlog::logger> logger) {
+void Connection::Start(std::shared_ptr<spdlog::logger> logger, std::deque<Connection*>::iterator self_it) {
     std::cout << "Start" << std::endl;
     readed_bytes = -1;
+    _self_it = self_it;
     _event.events = EPOLLIN|EPOLLRDHUP|EPOLLERR;
-    _event.data.fd = _socket;
     _event.data.ptr = this;
     _is_running = true;
     _logger = logger;
@@ -29,14 +29,12 @@ void Connection::Start(std::shared_ptr<spdlog::logger> logger) {
 // See Connection.h
 void Connection::OnError() {
     std::cout << "OnError" << std::endl;
-   // shutdown(_socket, SHUT_RDWR);
     _is_running = false;
 }
 
 // See Connection.h
 void Connection::OnClose() {
     std::cout << "OnClose" << std::endl;
-   // shutdown(_socket, SHUT_RDWR);
     _is_running = false;
 }
 

@@ -37,46 +37,11 @@ void Engine::Restore(context &ctx) {
 }
 
 
-void Engine::Block(context &ctx){
-    if (ctx.prev != nullptr) {
-        ctx.prev->next = ctx.next;
-    }
-
-    if (ctx.next != nullptr) {
-        ctx.next->prev = ctx.prev;
-    }
-
-    if (alive == cur_routine) {
-        alive = alive->next;
-    }
-
-    ctx.next = blocked;
-    blocked = &ctx;
-    if (ctx.next != nullptr) {
-        ctx.next->prev = &ctx;
-    }
-
-}
-
-void Engine::Unblock(context &ctx) {
-    if (ctx.prev != nullptr) {
-        ctx.prev->next = ctx.next;
-    }
-
-    if (ctx.next != nullptr) {
-        ctx.next->prev = ctx.prev;
-    }
-
-    if (blocked == cur_routine) {
-        blocked = blocked->next;
-    }
-}
-
 void* Engine::getCoroutine() {
     return cur_routine;
 }
 
-void*& Engine::getCoroutineInfo(void* coroutine) {
+void* Engine::getCoroutineInfo(void* coroutine) {
     if (coroutine){
         auto ctx = static_cast<context*>(coroutine);
         return ctx->info;
@@ -86,11 +51,10 @@ void*& Engine::getCoroutineInfo(void* coroutine) {
 
 }
 
-void Engine::setCoroutineInfo(void *&coroutine, void* new_info) {
+void Engine::setCoroutineInfo(void* coroutine, void* new_info) {
     if (coroutine){
         auto ctx = static_cast<context*>(coroutine);
         ctx->info = new_info;
-        coroutine = ctx;
     } else{
         cur_routine->info = new_info;
     }
@@ -99,7 +63,6 @@ void Engine::setCoroutineInfo(void *&coroutine, void* new_info) {
 void Engine::deleteCoroutine(void *coroutine) {
     if (coroutine){
         auto ctx = static_cast<context*>(coroutine);
-        delete ctx->info;
 
         if (ctx->prev != nullptr) {
             ctx->prev->next = ctx->next;
@@ -112,7 +75,6 @@ void Engine::deleteCoroutine(void *coroutine) {
         if (alive == ctx) {
             alive = alive->next;
         }
-
 
         delete std::get<0>(ctx->Stack);
         delete ctx;
@@ -160,8 +122,6 @@ void Engine::sched(void *routine_) {
         }
         auto arg = static_cast<context*>(routine_);
         Restore(*arg);
-    //} else {
-    //    yield();
     }
 }
 
