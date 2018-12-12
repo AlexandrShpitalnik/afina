@@ -39,6 +39,7 @@ private:
     struct epoll_event _event;
     bool _is_running;
     int readed_bytes;
+    int client_buff_ofs = 0;
     char client_buffer[4096];
     std::size_t arg_remains;
     Protocol::Parser parser;

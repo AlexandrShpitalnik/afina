@@ -42,7 +42,9 @@ void Connection::OnClose() {
 void Connection::DoRead() {
     std::cout << "DoRead" << std::endl;
     std::string result;
-    while (isAlive() && (readed_bytes = read(_socket, client_buffer, sizeof(client_buffer))) > 0) {
+    while (isAlive() && (readed_bytes = read(_socket, client_buffer + client_buff_ofs,
+                                             sizeof(client_buffer - client_buff_ofs))) > 0) {
+        readed_bytes += client_buff_ofs;
         _logger->debug("Got {} bytes from socket", readed_bytes);
         while (readed_bytes > 0 && isAlive()) {
             _logger->debug("Process {} bytes", readed_bytes);
@@ -74,6 +76,8 @@ void Connection::DoRead() {
                 std::memmove(client_buffer, client_buffer + to_read, readed_bytes - to_read);
                 arg_remains -= to_read;
                 readed_bytes -= to_read;
+                client_buff_ofs = readed_bytes;
+
             }
 
             // Thre is command & argument - RUN!
@@ -99,7 +103,7 @@ void Connection::DoRead() {
 // See Connection.h
 void Connection::DoWrite() {
     std::cout << "DoWrite" << std::endl;
-    auto iov = new struct iovec[global_result.size()];
+    struct iovec iov[global_result.size()];
     int written;
     iov[0].iov_base =&(global_result[0].front()) + offs;
     iov[0].iov_len = global_result[0].size() - offs;
@@ -112,19 +116,19 @@ void Connection::DoWrite() {
         throw std::runtime_error("Failed to send response");
     }
 
-
-    for (int i = 0; i < global_result.size() && written; i++) {
+    int vecs_num = global_result.size();
+    for (int i = 0; i < vecs_num; i++) {
         if (written >= iov[i].iov_len) {
             written -= iov[i].iov_len;
             global_result.pop_front();
         } else {
             offs = written;
+            break;
         }
     }
 
-    delete[] iov;
     _event.events = EPOLLIN|EPOLLRDHUP|EPOLLERR;
-    if (offs != 0){
+    if (global_result.size() != 0){
         SetWrite();
     }
 }
