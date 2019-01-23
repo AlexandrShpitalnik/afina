@@ -41,28 +41,20 @@ void* Engine::getCoroutine() {
     return cur_routine;
 }
 
-void* Engine::getCoroutineInfo(void* coroutine) {
-    if (coroutine){
-        auto ctx = static_cast<context*>(coroutine);
-        return ctx->info;
-    } else{
-        return cur_routine->info;
-    }
-
+int Engine::getCoroutineEvent() {
+    return cur_routine->event;
 }
 
-void Engine::setCoroutineInfo(void* coroutine, void* new_info) {
-    if (coroutine){
-        auto ctx = static_cast<context*>(coroutine);
-        ctx->info = new_info;
-    } else{
-        cur_routine->info = new_info;
-    }
+void Engine::setCoroutineEvent(void* coroutine, int event){
+    auto ctx = static_cast<context*>(coroutine);
+    ctx->event = event;
 }
 
-void Engine::deleteCoroutine(void *coroutine) {
-    if (coroutine){
-        auto ctx = static_cast<context*>(coroutine);
+void Engine::blockCoroutine() {
+    context *ctx = cur_routine;
+    if (!ctx -> is_blocked){
+
+        ctx->is_blocked = true;
 
         if (ctx->prev != nullptr) {
             ctx->prev->next = ctx->next;
@@ -72,15 +64,64 @@ void Engine::deleteCoroutine(void *coroutine) {
             ctx->next->prev = ctx->prev;
         }
 
-        if (alive == ctx) {
+        if (alive == cur_routine) {
             alive = alive->next;
         }
 
-        delete std::get<0>(ctx->Stack);
-        delete ctx;
-
+        ctx->prev = nullptr;
+        ctx->next = blocked;
+        blocked = ctx;
+        if (ctx->next != nullptr) {
+            ctx->next->prev = ctx;
+        }
     }
 }
+
+
+
+void Engine::unblockCoroutine(void *coroutine) {
+    auto ctx = static_cast<context*>(coroutine);
+
+    ctx->is_blocked = false;
+
+    if (ctx->prev != nullptr) {
+        ctx->prev->next = ctx->next;
+    }
+
+    if (ctx->next != nullptr) {
+        ctx->next->prev = ctx->prev;
+    }
+
+    if (blocked == cur_routine) {
+        blocked = blocked->next;
+    }
+
+    ctx->prev = nullptr;
+    ctx->next = alive;
+    alive = ctx;
+    if (ctx->next != nullptr) {
+        ctx->next->prev = ctx;
+    }
+}
+
+
+void Engine::unblockAll(){
+    if (alive) {
+        context *tmp = alive;
+        while (tmp->next) {
+            tmp = tmp->next;
+        }
+        tmp->next = blocked;
+        if (blocked) {
+            tmp->next->prev = tmp;
+        }
+    } else {
+        alive = blocked;
+    }
+
+    blocked = nullptr;
+}
+
 
 
 void Engine::stop(){
@@ -88,7 +129,7 @@ void Engine::stop(){
 }
 
 
-bool Engine::isRunnging() {
+bool Engine::isRunning() {
     return is_running;
 }
 
@@ -102,6 +143,7 @@ void Engine::yield() {
         }
         Store(*this->cur_routine);
     }
+
     if (alive != nullptr) {
         if (alive != cur_routine) {
             Restore(*alive);
@@ -109,6 +151,11 @@ void Engine::yield() {
             Restore(*alive->next);
         }
     }
+
+    if(this->cur_routine){
+        Restore(*idle_ctx);
+    }
+
 }
 
 

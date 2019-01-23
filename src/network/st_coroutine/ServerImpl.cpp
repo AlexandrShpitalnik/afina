@@ -91,9 +91,11 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
     }
 
 
-    _work_thread = std::thread([&](){engine.start(OnRun, engine, _server_socket, _event_fd);});
+    //_work_thread = std::thread([&](){engine.start(OnRun, engine, _server_socket, _event_fd);});
+    _work_thread = std::thread([this] { this->engine.start([this] { this->Idle(); }, [this] { this->OnRun(); }); });
 
-}
+
+    }
 
 
 // See Server.h
@@ -106,31 +108,63 @@ void ServerImpl::Stop() {
         throw std::runtime_error("Failed to wakeup workers");
     }
 
-    _work_thread.join();
+
 }
 
 // See Server.h
-void ServerImpl::Join() { //todo
-    engine.stop();
-
-    // Wakeup threads that are sleep on epoll_wait
-    if (eventfd_write(_event_fd, 1)) {
-        throw std::runtime_error("Failed to wakeup workers");
-    }
+void ServerImpl::Join() {
 
     _work_thread.join();
 
 }
 
+
+void ServerImpl::Idle() {
+    while (is_running) {
+
+        if (!engine.isRunning()){
+            is_running = false;
+            engine.unblockAll();
+            engine.yield();
+        }
+
+        std::array<struct epoll_event, 64> mod_list;
+        int nmod = epoll_wait(epoll, &mod_list[0], mod_list.size(), -1);
+        for (int i = 0; i < nmod; i++) {
+            struct epoll_event &current_event = mod_list[i];
+
+            if (current_event.data.fd == _event_fd) {
+                //engine._logger->debug("Break acceptor due to stop signal");
+                engine.stop();
+                continue;
+            } else if (current_event.data.fd == _server_socket) {
+                Accept();
+                continue;
+            }
+
+            void* coroutine = current_event.data.ptr;
+            engine.setCoroutineEvent(coroutine, current_event.events);
+            engine.unblockCoroutine(coroutine);
+        }
+        engine.yield();
+    }
+}
+
+
 // See ServerImpl.h
-void ServerImpl::OnRun(Afina::Network::Coroutine::Engine &engine, int &_server_socket, int &_event_fd) {
-    //engine._logger->info("Start engine");
-    void *coroutine =  engine.getCoroutine();
+void ServerImpl::OnRun() {
 
 
-    int epoll = epoll_create1(0);
+    epoll = epoll_create1(0);
     if (epoll == -1) {
         throw std::runtime_error("Failed to create epoll file descriptor: " + std::string(strerror(errno)));
+    }
+
+    struct epoll_event event;
+    event.events = EPOLLIN;
+    event.data.fd = _server_socket;
+    if (epoll_ctl(epoll, EPOLL_CTL_ADD, _server_socket, &event)) {
+        throw std::runtime_error("Failed to add file descriptor to epoll");
     }
 
 
@@ -140,123 +174,107 @@ void ServerImpl::OnRun(Afina::Network::Coroutine::Engine &engine, int &_server_s
     if (epoll_ctl(epoll, EPOLL_CTL_ADD, _event_fd, &event2)) {
         throw std::runtime_error("Failed to add file descriptor to epoll");
     }
-
-
-
-    void* ac =  engine.run(ServerImpl::Accept, engine, _server_socket, epoll, coroutine);
-    auto dbg = Add(ac, epoll, _server_socket, true);
-    engine.setCoroutineInfo(ac, dbg);
-
-
-    while (engine.isRunnging()) {
-        std::array<struct epoll_event, 64> mod_list;
-        int nmod = epoll_wait(epoll, &mod_list[0], mod_list.size(), -1);
-        for (int i = 0; i < nmod; i++) {
-            struct epoll_event &current_event = mod_list[i];
-
-            if(current_event.data.fd == _event_fd){
-                //engine._logger->debug("Break acceptor due to stop signal");
-                continue;
-            }
-
-            auto info = static_cast<epoll_info*>(current_event.data.ptr);
-
-
-            if ((current_event.events & EPOLLERR) || (current_event.events & EPOLLHUP) ||
-                (current_event.events & EPOLLRDHUP)){
-
-                if (epoll_ctl(epoll, EPOLL_CTL_DEL, info->fd, &info->event)) {
-                    //engine._logger->error("Failed to delete connection from epoll");
-                }
-                close(info->fd);
-                delete info;
-                engine.deleteCoroutine(info->coroutine);
-
-            } else {
-                engine.sched(info->coroutine);
-            }
-        }
-    }
 }
 
 
-void ServerImpl::Accept(Afina::Network::Coroutine::Engine &engine, int &socket, int &epoll, void *&prev) { // todo - logger(in engine)
-    while (engine.isRunnging()) {
+
+
+void ServerImpl::Accept() {
+    for (;;) {
         struct sockaddr in_addr;
         socklen_t in_len;
+
         // No need to make these sockets non blocking since accept4() takes care of it.
         in_len = sizeof in_addr;
-        int infd = accept4(socket, &in_addr, &in_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        int infd = accept4(_server_socket, &in_addr, &in_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if (infd == -1) {
             if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-                engine.sched(prev);
-                continue; // We have processed all incoming connections.
+                break; // We have processed all incoming connections.
             } else {
-                //engine._logger->error("Failed to accept socket");
-                continue;
+                //_logger->error("Failed to accept socket");
+                break;
             }
         }
+
         // Print host and service info.
         char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
-        int retval = getnameinfo(&in_addr, in_len, hbuf, sizeof hbuf, sbuf, sizeof sbuf,
-                                 NI_NUMERICHOST | NI_NUMERICSERV);
+        int retval =
+            getnameinfo(&in_addr, in_len, hbuf, sizeof hbuf, sbuf, sizeof sbuf, NI_NUMERICHOST | NI_NUMERICSERV);
         if (retval == 0) {
-            //engine._logger->info("Accepted connection on descriptor {} (host={}, port={})\n", infd, hbuf, sbuf);
+           // _logger->info("Accepted connection on descriptor {} (host={}, port={})\n", infd, hbuf, sbuf);
         }
 
-        void* new_connection = engine.run(Worker, engine, infd, epoll, prev);
-        engine.setCoroutineInfo(new_connection, Add(new_connection, epoll, infd, true));
-
-    }
-    close(socket);
-}
-
-
-
-void ServerImpl::Reload(void *info, int epoll, bool on_read) {
-    auto einfo = static_cast<epoll_info*>(info);
-    int fd = einfo->fd;
-
-    einfo->event.events = EPOLLRDHUP|EPOLLHUP|EPOLLERR;
-    if (on_read) {
-        einfo->event.events |= EPOLLIN;
-    } else {
-        einfo->event.events |= EPOLLOUT;
-    }
-
-
-    if (epoll_ctl(epoll, EPOLL_CTL_MOD, fd, &einfo->event)) {
-        throw std::runtime_error("Failed to add file descriptor to epoll");
+         void* new_connection = engine.run([this, infd] { this->Worker(infd); } );
     }
 }
 
 
-void* ServerImpl::Add(void *coroutine, int epoll, int fd, bool on_read) {
+int ServerImpl::BlockingRead(const int fd, void *buf, unsigned count, epoll_event *event){
+    int exit_code = -1;
 
-    epoll_info* info = new struct epoll_info;
-    info->fd = fd;
-    info->coroutine = coroutine;
+    while (is_running) {
+        int readed_bytes = read(fd, buf, count);
+        int mask = EPOLLRDHUP|EPOLLHUP|EPOLLERR|EPOLLIN;
 
-    info->event.events = EPOLLRDHUP|EPOLLHUP|EPOLLERR;
-    if (on_read) {
-        info->event.events |= EPOLLIN;
-    } else {
-        info->event.events |= EPOLLOUT;
+        if (readed_bytes <= 0) {
+            if (event->events != mask){
+                event->events = mask;
+                if (epoll_ctl(epoll, EPOLL_CTL_MOD, fd, event)) {
+                    throw std::runtime_error("Failed to mod file descriptor to epoll");
+                }
+            }
+
+            engine.blockCoroutine();
+            engine.yield();
+
+            int cur_events = engine.getCoroutineEvent();
+            if (cur_events & EPOLLRDHUP) {
+                exit_code = 0;
+                break;
+            }
+            if (cur_events & (EPOLLERR | EPOLLHUP)) {
+                break;
+            }
+        } else {
+            return readed_bytes;
+        }
     }
-    info->event.data.ptr = info;
 
-
-    if (epoll_ctl(epoll, EPOLL_CTL_ADD, fd, &info->event)) {
-        throw std::runtime_error("Failed to add file descriptor to epoll");
-    }
-    return info;
+    return exit_code;
 }
 
 
 
+int ServerImpl::BlockingWrite(const int fd, const void *buf, unsigned count, epoll_event *event){
+    int written = 0;
+    int mask = EPOLLRDHUP|EPOLLHUP|EPOLLERR|EPOLLOUT;
+
+    while (is_running) {
+        written += write(fd, (char *)buf + written, count - written);
+
+        if (written < count) {
+            if (event->events != mask){
+                if (epoll_ctl(epoll, EPOLL_CTL_MOD, fd, event)) {
+                    throw std::runtime_error("Failed to add file descriptor to epoll");
+                }
+            }
+            engine.blockCoroutine();
+            engine.yield();
+            int cur_events = engine.getCoroutineEvent();
+            if (cur_events & (EPOLLRDHUP | EPOLLERR | EPOLLHUP)) {
+                break;
+            }
+        } else {
+            return written;
+        }
+    }
+
+    return -1;
+}
 
 
-void ServerImpl::Worker(Afina::Network::Coroutine::Engine &engine, int &_socket, int &epoll, void *&prev) {
+
+void ServerImpl::Worker(const int client_socket) {
 
     std::size_t arg_remains;
     Protocol::Parser parser;
@@ -265,16 +283,24 @@ void ServerImpl::Worker(Afina::Network::Coroutine::Engine &engine, int &_socket,
     int readed_bytes = -1;
     char client_buffer[4096];
 
-    while (engine.isRunnging()){
-        while((readed_bytes = read(_socket, client_buffer, sizeof(client_buffer))) > 0) {
-            //engine._logger->debug("Got {} bytes from socket", readed_bytes);
-            while (readed_bytes > 0 && engine.isRunnging()) {
-                //engine._logger->debug("Process {} bytes", readed_bytes);
+
+    try{
+        struct epoll_event *event = new struct epoll_event;
+        event->data.ptr = engine.getCoroutine();
+        event->events = EPOLLRDHUP|EPOLLHUP|EPOLLERR|EPOLLIN;
+        if (epoll_ctl(epoll, EPOLL_CTL_ADD, client_socket, event)) {
+            throw std::runtime_error("Failed to add file descriptor to epoll");
+        }
+
+        while (is_running && (readed_bytes = BlockingRead(client_socket, client_buffer, sizeof(client_buffer), event)) > 0) {
+            //_logger->debug("Got {} bytes from socket", readed_bytes);
+            while (readed_bytes > 0 && is_running) {
+                //_logger->debug("Process {} bytes", readed_bytes);
                 // There is no command yet
                 if (!command_to_execute) {
                     std::size_t parsed = 0;
                     if (parser.Parse(client_buffer, readed_bytes, parsed)) {
-                        //engine._logger->debug("Found new command: {} in {} bytes", parser.Name(), parsed);
+                        //_logger->debug("Found new command: {} in {} bytes", parser.Name(), parsed);
                         command_to_execute = parser.Build(arg_remains);
                         if (arg_remains > 0) {
                             arg_remains += 2;
@@ -290,7 +316,7 @@ void ServerImpl::Worker(Afina::Network::Coroutine::Engine &engine, int &_socket,
 
                 // There is command, but we still wait for argument to arrive...
                 if (command_to_execute && arg_remains > 0) {
-                    //engine._logger->debug("Fill argument: {} bytes of {}", readed_bytes, arg_remains);
+                   // _logger->debug("Fill argument: {} bytes of {}", readed_bytes, arg_remains);
                     // There is some parsed command, and now we are reading argument
                     std::size_t to_read = std::min(arg_remains, std::size_t(readed_bytes));
                     argument_for_command.append(client_buffer, to_read);
@@ -302,47 +328,45 @@ void ServerImpl::Worker(Afina::Network::Coroutine::Engine &engine, int &_socket,
 
                 // Thre is command & argument - RUN!
                 if (command_to_execute && arg_remains == 0) {
-                    //engine._logger->debug("Start command execution");
-                    if (argument_for_command.back() == '\n') {
-                        argument_for_command.pop_back();
-                        argument_for_command.pop_back();
-                    }
+                    //_logger->debug("Start command execution");
+
                     std::string result;
-                    command_to_execute->Execute(*(engine.Storage), argument_for_command, result);
+                    command_to_execute->Execute(*pStorage, argument_for_command, result);
+
                     result += "\r\n";
-
-
-                    Reload(engine.getCoroutineInfo(nullptr), epoll, false);
-
-
                     // Send response
+                    if (BlockingWrite(client_socket, result.data(), result.size(), event) <= 0) {
+                        throw std::runtime_error("Failed to send response");
+                    }
 
-                    int offs = 0;
-
-                    do {
-
-                        engine.sched(prev);
-
-                        int new_offs = send(_socket, result.data() + offs, result.size() - offs, 0);
-                        if (new_offs <= 0) {
-                            throw std::runtime_error("Failed to send response");
-                        }
-
-                        offs += new_offs;
-
-                    } while (offs != result.size());
+                    // Prepare for the next command
                     command_to_execute.reset();
                     argument_for_command.resize(0);
                     parser.Reset();
                 }
-            }
+            } // while (readed_bytes)
         }
 
-        Reload(engine.getCoroutineInfo(nullptr), epoll, true);
-        engine.sched(prev);
+        if (readed_bytes == 0) {
+            //_logger->debug("Connection closed");
+        } else {
+            throw std::runtime_error(std::string(strerror(errno)));
+        }
+
+
+        if (epoll_ctl(epoll, EPOLL_CTL_DEL, client_socket, event)) {
+            //engine._logger->error("Failed to delete connection from epoll");
+        }
+        delete event;
+
+    } catch (std::runtime_error &ex) {
+        //_logger->error("Failed to process connection on descriptor {}: {}", client_socket, ex.what());
     }
-    close(_socket);
+
+    close(client_socket);
+
 }
+
 
 
 

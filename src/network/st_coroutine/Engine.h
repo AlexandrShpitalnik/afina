@@ -45,7 +45,8 @@ private:
         // To include routine in the different lists, such as "alive", "blocked", e.t.c
         struct context *prev = nullptr;
         struct context *next = nullptr;
-        void *info; //in general coroutine info (epoll event)
+        int event = 0;
+        bool is_blocked = false;
 
 
     } context;
@@ -107,17 +108,23 @@ public:
     Engine(const Engine &) = delete;
     void stop();
 
-    bool isRunnging();
+    bool isRunning();
 
     std::shared_ptr<Afina::Storage> Storage;
     std::shared_ptr<Afina::Logging::Service> _plogging;
     std::shared_ptr<spdlog::logger> _logger;
 
 
-    void* getCoroutineInfo(void* coroutine);
+
+    void blockCoroutine();
+    void unblockCoroutine(void* coroutine);
+    void unblockAll();
+
+    int getCoroutineEvent();
     void* getCoroutine();
-    void setCoroutineInfo(void* coroutine, void* new_info);
-    void deleteCoroutine(void* coroutine);
+    void setCoroutineEvent(void* coroutine, int event);
+
+
 
     /**
      * Gives up current routine execution and let engine to schedule other one. It is not defined when
@@ -148,7 +155,7 @@ public:
      * @param pointer to the main coroutine
      * @param arguments to be passed to the main coroutine
      */
-    template <typename... Ta> void start(void (*main)(Ta...), Ta &&... args) {
+    template <typename Tf, typename... Ta, typename Ti> void start(Ti && IdleFunc, Tf && main, Ta &&... args) {
         // To acquire stack begin, create variable on stack and remember its address
         char StackStartsHere;
         this->StackBottom = &StackStartsHere;
@@ -165,6 +172,9 @@ public:
             sched(pc);
         }
 
+
+        IdleFunc();
+
         // Shutdown runtime
         delete idle_ctx;
         this->StackBottom = 0;
@@ -174,7 +184,7 @@ public:
      * Register new coroutine. It won't receive control until scheduled explicitely or implicitly. In case of some
      * errors function returns -1
      */
-    template <typename... Ta> void *run(void (*func)(Ta...), Ta &&... args) {
+    template <typename Tf, typename... Ta> void *run(Tf && func, Ta &&... args) {
         if (this->StackBottom == 0) {
             // Engine wasn't initialized yet
             return nullptr;
@@ -209,11 +219,13 @@ public:
                 alive = alive->next;
             }
 
+
             // current coroutine finished, and the pointer is not relevant now
             cur_routine = nullptr;
             pc->prev = pc->next = nullptr;
             delete std::get<0>(pc->Stack);
             delete pc;
+
 
             // We cannot return here, as this function "returned" once already, so here we must select some other
             // coroutine to run. As current coroutine is completed and can't be scheduled anymore, it is safe to
