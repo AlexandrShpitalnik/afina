@@ -10,25 +10,40 @@ namespace Coroutine {
 
 void Engine::Store(context &ctx) {
     char StackEndsHere;
+    unsigned int size;
+    char *start;
     ctx.Low = &StackEndsHere;
     ctx.Hight = this->StackBottom;
-    unsigned int size = ctx.Hight -ctx.Low;
+    if(ctx.Hight > ctx.Low) {
+        size = ctx.Hight - ctx.Low;
+        start = ctx.Low;
+    } else {
+        size = ctx.Low - ctx.Hight;
+        start = ctx.Hight;
+    }
     std::get<1>(ctx.Stack) = size;
-    if(std::get<0>(ctx.Stack)){
+    if (std::get<0>(ctx.Stack)) {
         delete[](std::get<0>(ctx.Stack));
     }
     std::get<0>(ctx.Stack) = new char[size];
-    memcpy(std::get<0>(ctx.Stack), ctx.Low, size);
-
+    memcpy(std::get<0>(ctx.Stack), start, size);
 }
+
+
 
 void Engine::Restore(context &ctx) {
     char StackEndsHere;
-    if (&StackEndsHere > ctx.Low){
+    char *start;
+    if (ctx.Hight > ctx.Low){
+        start = ctx.Low;
+    } else {
+        start = ctx.Hight;
+    }
+    if (&StackEndsHere > start){
         Restore(ctx);
     }
     cur_routine = &ctx == idle_ctx ? nullptr : &ctx;
-    memcpy(ctx.Low, std::get<0>(ctx.Stack), std::get<1>(ctx.Stack));
+    memcpy(start, std::get<0>(ctx.Stack), std::get<1>(ctx.Stack));
     std::longjmp(ctx.Environment, 1);
 }
 
