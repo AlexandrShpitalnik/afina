@@ -22,7 +22,7 @@ namespace MTnonblock {
 
 // See Worker.h
 Worker::Worker(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Afina::Logging::Service> pl)
-    : _pStorage(ps), _pLogging(pl), isRunning(false), _epoll_fd(-1) {
+    : _pStorage(ps), _pLogging(pl), _isRunning(false), _epoll_fd(-1) {
     // TODO: implementation here
 }
 
@@ -48,7 +48,7 @@ Worker &Worker::operator=(Worker &&other) {
 
 // See Worker.h
 void Worker::Start(int epoll_fd) {
-    if (isRunning.exchange(true) == false) {
+    if (_isRunning.exchange(true) == false) {
         assert(_epoll_fd == -1);
         _epoll_fd = epoll_fd;
         _logger = _pLogging->select("network.worker");
@@ -57,13 +57,23 @@ void Worker::Start(int epoll_fd) {
 }
 
 // See Worker.h
-void Worker::Stop() { isRunning = false; }
+void Worker::Stop() { _isRunning.store(false); }
 
 // See Worker.h
 void Worker::Join() {
     assert(_thread.joinable());
     _thread.join();
 }
+
+
+void  Worker::EraseConnection(Connection* pc) {
+
+    std::lock_guard<std::mutex> lock(*pc->connects_mutex);
+    close(pc->_socket);
+    pc->_connects->erase(pc->_self_it);
+
+}
+
 
 // See Worker.h
 void Worker::OnRun() {
@@ -76,7 +86,7 @@ void Worker::OnRun() {
     // for events to avoid thundering herd type behavior.
     int timeout = -1;
     std::array<struct epoll_event, 64> mod_list;
-    while (isRunning) {
+    while (_isRunning.load()) {
         int nmod = epoll_wait(_epoll_fd, &mod_list[0], mod_list.size(), timeout);
         _logger->debug("Worker wokeup: {} events", nmod);
 
@@ -111,6 +121,9 @@ void Worker::OnRun() {
                 pconn->_event.events |= EPOLLONESHOT;
                 if (epoll_ctl(_epoll_fd, EPOLL_CTL_MOD, pconn->_socket, &pconn->_event)) {
                     pconn->OnError();
+
+                    EraseConnection(pconn);
+
                     delete pconn;
                 }
             }
@@ -119,6 +132,9 @@ void Worker::OnRun() {
                 if (epoll_ctl(_epoll_fd, EPOLL_CTL_DEL, pconn->_socket, &pconn->_event)) {
                     std::cerr << "Failed to delete connection!" << std::endl;
                 }
+
+                EraseConnection(pconn);
+
                 delete pconn;
             }
         }

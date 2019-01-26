@@ -3,6 +3,7 @@
 
 #include <thread>
 #include <vector>
+#include "Connection.h"
 
 #include <afina/network/Server.h>
 
@@ -37,7 +38,7 @@ public:
 
 protected:
     void OnRun();
-    void OnNewConnection();
+
 
 private:
     // logger to use
@@ -54,6 +55,7 @@ private:
     // Threads that accepts new connections, each has private epoll instance
     // but share global server socket
     std::vector<std::thread> _acceptors;
+
 
     // EPOLL instance shared between workers
     int _data_epoll_fd;

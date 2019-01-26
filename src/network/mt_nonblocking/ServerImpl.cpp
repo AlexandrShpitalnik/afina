@@ -102,6 +102,8 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 
     // Start acceptors
     _acceptors.reserve(n_acceptors);
+
+
     for (int i = 0; i < n_acceptors; i++) {
         _acceptors.emplace_back(&ServerImpl::OnRun, this);
     }
@@ -119,16 +121,17 @@ void ServerImpl::Stop() {
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
     }
+
+    for (auto &w : _workers) {
+        w.Join();
+    }
+
 }
 
 // See Server.h
 void ServerImpl::Join() {
     for (auto &t : _acceptors) {
         t.join();
-    }
-
-    for (auto &w : _workers) {
-        w.Join();
     }
 }
 
@@ -153,6 +156,10 @@ void ServerImpl::OnRun() {
     if (epoll_ctl(acceptor_epoll, EPOLL_CTL_ADD, _event_fd, &event2)) {
         throw std::runtime_error("Failed to add file descriptor to epoll");
     }
+
+    std::mutex _connects_mutex;
+    std::deque<Connection*> _connects;
+    std::deque<Connection*>::iterator _connects_iter;
 
     bool run = true;
     std::array<struct epoll_event, 64> mod_list;
@@ -193,23 +200,45 @@ void ServerImpl::OnRun() {
                 }
 
                 // Register the new FD to be monitored by epoll.
-                Connection *pc = new Connection(infd);
+                Connection *pc = new Connection(infd, pStorage, &_connects_mutex, &_connects);
                 if (pc == nullptr) {
                     throw std::runtime_error("Failed to allocate connection");
                 }
 
                 // Register connection in worker's epoll
-                pc->Start();
-                if (pc->isAlive()) {
+                {
+                    std::lock_guard<std::mutex> lock(_connects_mutex);
+                    _connects.push_back(pc);
+                    _connects_iter = _connects.end();
+                }
+
+                pc->Start(_logger,_connects_iter);
+                auto tmp = pc->isAlive();
+                if (tmp) {
                     pc->_event.events |= EPOLLONESHOT;
-                    if (epoll_ctl(_data_epoll_fd, EPOLL_CTL_MOD, pc->_socket, &pc->_event)) {
+                    if (epoll_ctl(_data_epoll_fd, EPOLL_CTL_ADD, pc->_socket, &pc->_event)) {
+                        {
+                            std::lock_guard<std::mutex> lock(_connects_mutex);
+                            _connects.erase(_connects_iter);
+                        }
                         pc->OnError();
                         delete pc;
+
                     }
                 }
             }
         }
     }
+
+    {
+        std::lock_guard<std::mutex> lock(_connects_mutex);
+        for (auto i = _connects.begin(); i != _connects.end(); i++) {
+            close((*i)->_socket);
+            delete (*i);
+        }
+        _connects.clear();
+    }
+
     _logger->warn("Acceptor stopped");
 }
 

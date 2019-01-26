@@ -4,6 +4,7 @@
 #include <atomic>
 #include <memory>
 #include <thread>
+#include "Connection.h"
 
 namespace spdlog {
 class logger;
@@ -60,6 +61,8 @@ protected:
      */
     void OnRun();
 
+    void EraseConnection(Connection* pc);
+
 private:
     Worker(Worker &) = delete;
     Worker &operator=(Worker &) = delete;
@@ -74,7 +77,7 @@ private:
     std::shared_ptr<spdlog::logger> _logger;
 
     // Flag signals that thread should continue to operate
-    std::atomic<bool> isRunning;
+    std::atomic<bool> _isRunning;
 
     // Thread serving requests in this worker
     std::thread _thread;
