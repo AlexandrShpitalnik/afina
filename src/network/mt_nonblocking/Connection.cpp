@@ -34,68 +34,69 @@ void Connection::OnClose() {
 void Connection::DoRead() {
     std::cout << "DoRead" << std::endl;
     std::string result;
-    while (isAlive() && (readed_bytes = read(_socket, client_buffer + client_buff_ofs,
-                                             sizeof(client_buffer - client_buff_ofs))) > 0) {
-        readed_bytes += client_buff_ofs;
-        _logger->debug("Got {} bytes from socket", readed_bytes);
-        while (readed_bytes > 0 && isAlive()) {
-            _logger->debug("Process {} bytes", readed_bytes);
-            // There is no command yet
-            if (!command_to_execute) {
-                std::size_t parsed = 0;
-                if (parser.Parse(client_buffer, readed_bytes, parsed)) {
-                    _logger->debug("Found new command: {} in {} bytes", parser.Name(), parsed);
-                    command_to_execute = parser.Build(arg_remains);
-                    if (arg_remains > 0) {
-                        arg_remains += 2;
+    try {
+        while (isAlive() && (readed_bytes = read(_socket, client_buffer + client_buff_ofs,
+                                                 sizeof(client_buffer) - client_buff_ofs)) > 0) {
+            readed_bytes += client_buff_ofs;
+            _logger->debug("Got {} bytes from socket", readed_bytes);
+            while (readed_bytes > 0 && isAlive()) {
+                _logger->debug("Process {} bytes", readed_bytes);
+                // There is no command yet
+                if (!command_to_execute) {
+                    std::size_t parsed = 0;
+                    if (parser.Parse(client_buffer, readed_bytes, parsed)) {
+                        _logger->debug("Found new command: {} in {} bytes", parser.Name(), parsed);
+                        command_to_execute = parser.Build(arg_remains);
+                        if (arg_remains > 0) {
+                            arg_remains += 2;
+                        }
+                    }
+                    if (parsed == 0) {
+                        break;
+                    } else {
+                        std::memmove(client_buffer, client_buffer + parsed, readed_bytes - parsed);
+                        readed_bytes -= parsed;
                     }
                 }
-                if (parsed == 0) {
-                    break;
-                } else {
-                    std::memmove(client_buffer, client_buffer + parsed, readed_bytes - parsed);
-                    readed_bytes -= parsed;
-                }
-            }
 
-            // There is command, but we still wait for argument to arrive...
-            if (command_to_execute && arg_remains > 0) {
-                _logger->debug("Fill argument: {} bytes of {}", readed_bytes, arg_remains);
-                // There is some parsed command, and now we are reading argument
-                std::size_t to_read = std::min(arg_remains, std::size_t(readed_bytes));
-                argument_for_command.append(client_buffer, to_read);
+                // There is command, but we still wait for argument to arrive...
+                if (command_to_execute && arg_remains > 0) {
+                    _logger->debug("Fill argument: {} bytes of {}", readed_bytes, arg_remains);
+                    // There is some parsed command, and now we are reading argument
+                    std::size_t to_read = std::min(arg_remains, std::size_t(readed_bytes));
+                    argument_for_command.append(client_buffer, to_read);
 
-                std::memmove(client_buffer, client_buffer + to_read, readed_bytes - to_read);
-                arg_remains -= to_read;
-                readed_bytes -= to_read;
-                client_buff_ofs = readed_bytes;
+                    std::memmove(client_buffer, client_buffer + to_read, readed_bytes - to_read);
+                    arg_remains -= to_read;
+                    readed_bytes -= to_read;
+                    client_buff_ofs = readed_bytes;
 
-            }
-
-            // Thre is command & argument - RUN!
-            if (command_to_execute && arg_remains == 0) {
-                _logger->debug("Start command execution");
-                if(argument_for_command.back() == '\n'){
-                    argument_for_command.pop_back();
-                    argument_for_command.pop_back();
-                }
-                command_to_execute->Execute(*_pStorage, argument_for_command, result);
-                result += "\r\n";
-
-                {
-                    std::lock_guard<std::mutex> lock(global_result_mutex);
-                    global_result.push_back(result);
-                    _event.events = EPOLLIN|EPOLLRDHUP|EPOLLERR|EPOLLOUT;
                 }
 
+                // Thre is command & argument - RUN!
+                if (command_to_execute && arg_remains == 0) {
+                    _logger->debug("Start command execution");
+                    if (argument_for_command.back() == '\n') {
+                        argument_for_command.pop_back();
+                        argument_for_command.pop_back();
+                    }
+                    command_to_execute->Execute(*_pStorage, argument_for_command, result);
+                    result += "\r\n";
+
+                    {
+                        std::lock_guard<std::mutex> lock(global_result_mutex);
+                        global_result.push_back(result);
+                        _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLOUT;
+                    }
 
 
-                command_to_execute.reset();
-                argument_for_command.resize(0);
-                parser.Reset();
+                    command_to_execute.reset();
+                    argument_for_command.resize(0);
+                    parser.Reset();
+                }
             }
         }
-    }
+    }catch (std::runtime_error &ex) {}
 }
 
 // See Connection.h

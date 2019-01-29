@@ -51,7 +51,7 @@ private:
     std::shared_ptr<spdlog::logger> _logger;
 
 
-    Engine engine;
+    Engine _engine;
 
 
 
@@ -62,12 +62,12 @@ private:
 
     int _server_socket;
 
-    bool is_running;
+    bool _is_running;
 
     // Curstom event "device" used to wakeup workers
     int _event_fd;
 
-    int epoll;
+    int _epoll;
 
 
 
