@@ -78,7 +78,7 @@ void Engine::blockCoroutine() {
             ctx->next->prev = ctx->prev;
         }
 
-        if (alive == cur_routine) {
+        if (alive == ctx) {
             alive = alive->next;
         }
 
@@ -106,7 +106,7 @@ void Engine::unblockCoroutine(void *coroutine) {
         ctx->next->prev = ctx->prev;
     }
 
-    if (blocked == cur_routine) {
+    if (blocked == ctx) {
         blocked = blocked->next;
     }
 
