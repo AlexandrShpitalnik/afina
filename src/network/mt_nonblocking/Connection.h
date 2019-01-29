@@ -42,7 +42,6 @@ private:
     struct epoll_event _event;
 
     std::atomic<bool> _is_running;
-    std::mutex global_result_mutex;
 
     int readed_bytes;
     int client_buff_ofs = 0;

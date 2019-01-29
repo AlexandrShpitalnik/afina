@@ -34,6 +34,7 @@ void Connection::OnClose() {
 void Connection::DoRead() {
     std::cout << "DoRead" << std::endl;
     std::string result;
+    std::atomic_thread_fence(std::memory_order_acquire);
     try {
         while (isAlive() && (readed_bytes = read(_socket, client_buffer + client_buff_ofs,
                                                  sizeof(client_buffer) - client_buff_ofs)) > 0) {
@@ -83,12 +84,8 @@ void Connection::DoRead() {
                     command_to_execute->Execute(*_pStorage, argument_for_command, result);
                     result += "\r\n";
 
-                    {
-                        std::lock_guard<std::mutex> lock(global_result_mutex);
-                        global_result.push_back(result);
-                        _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLOUT;
-                    }
-
+                    global_result.push_back(result);
+                    _event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLOUT;
 
                     command_to_execute.reset();
                     argument_for_command.resize(0);
@@ -97,50 +94,44 @@ void Connection::DoRead() {
             }
         }
     }catch (std::runtime_error &ex) {}
+    std::atomic_thread_fence(std::memory_order_release);
 }
 
 // See Connection.h
 void Connection::DoWrite() {
     std::cout << "DoWrite" << std::endl;
-    struct iovec *iov;
+    struct iovec iov[global_result.size()];
     int written;
 
-    {
-        std::lock_guard<std::mutex> lock(global_result_mutex);
-        iov = new struct iovec[global_result.size()];
-        iov[0].iov_base =&(global_result[0].front()) + offs;
-        iov[0].iov_len = global_result[0].size() - offs;
-        for (int i = 1; i < global_result.size(); i++){
-            iov[i].iov_base =&(global_result[i].front());
-            iov[i].iov_len = global_result[i].size();
-        }
+    std::atomic_thread_fence(std::memory_order_acquire);
 
+    iov[0].iov_base =&(global_result[0].front()) + offs;
+    iov[0].iov_len = global_result[0].size() - offs;
+    for (int i = 1; i < global_result.size(); i++){
+        iov[i].iov_base =&(global_result[i].front());
+        iov[i].iov_len = global_result[i].size();
     }
 
     if ((written = writev(_socket, iov, global_result.size())) <= 0) {
         throw std::runtime_error("Failed to send response");
     }
 
-    {
-        std::lock_guard<std::mutex> lock(global_result_mutex);
-        int vecs_num = global_result.size();
-        for (int i = 0; i < vecs_num; i++) {
-            if (written >= iov[i].iov_len) {
-                written -= iov[i].iov_len;
-                global_result.pop_front();
-            } else {
-                offs = written;
-                break;
-            }
-        }
-        _event.events = EPOLLIN|EPOLLRDHUP|EPOLLERR;
-        if (global_result.size() != 0){
-            _event.events |= EPOLLOUT;
+    int vecs_num = global_result.size();
+    for (int i = 0; i < vecs_num; i++) {
+        if (written >= iov[i].iov_len) {
+            written -= iov[i].iov_len;
+            global_result.pop_front();
+        } else {
+            offs = written;
+            break;
         }
     }
+    _event.events = EPOLLIN|EPOLLRDHUP|EPOLLERR;
+    if (global_result.size() != 0) {
+        _event.events |= EPOLLOUT;
+    }
 
-    delete[] iov;
-
+    std::atomic_thread_fence(std::memory_order_release);
 
 }
 
